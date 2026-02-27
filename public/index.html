@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskKu — Daftar Tugas Kuliah</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Plus Jakarta Sans', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      }
+    }
+  }
+}
+</script>
+<style>
+  body { background-color: #faf7f0; font-family: 'Plus Jakarta Sans', sans-serif; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d4cfc9; border-radius: 8px; }
+
+  .custom-check {
+    appearance: none; -webkit-appearance: none;
+    width: 22px; height: 22px;
+    border: 2px solid #d4cfc9; border-radius: 6px;
+    cursor: pointer; flex-shrink: 0;
+    transition: all 0.18s ease;
+    position: relative; background: white;
+    display: grid; place-content: center;
+  }
+  .custom-check::after {
+    content: ''; width: 5px; height: 9px;
+    border: 2px solid white; border-top: none; border-left: none;
+    transform: rotate(45deg) translateY(-1px);
+    opacity: 0; transition: opacity 0.15s ease;
+  }
+  .custom-check:checked { background: #3d8b5e; border-color: #3d8b5e; }
+  .custom-check:checked::after { opacity: 1; }
+  .custom-check:hover:not(:checked) { border-color: #4fa873; background: #f0faf4; }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; } to { opacity: 1; }
+  }
+  @keyframes shake {
+    0%,100%{transform:translateX(0)}
+    20%{transform:translateX(-6px)} 40%{transform:translateX(6px)}
+    60%{transform:translateX(-4px)} 80%{transform:translateX(4px)}
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .animate-slide-in { animation: slideIn 0.28s ease; }
+  .animate-fade-in  { animation: fadeIn 0.3s ease; }
+  .spin { animation: spin 0.7s linear infinite; }
+
+  .progress-fill { transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+  input:focus, select:focus { outline: none; }
+  .text-done { text-decoration: line-through; color: #b0a9a1; }
+
+  .filter-active {
+    background: #e8f5ee !important;
+    border-color: #3d8b5e !important;
+    color: #3d8b5e !important;
+    font-weight: 600;
+  }
+  .no-scroll::-webkit-scrollbar { display: none; }
+  .no-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+  .mk-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 500;
+    padding: 3px 9px; border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .removing {
+    opacity: 0 !important;
+    transform: translateX(16px) !important;
+    transition: all 0.2s ease !important;
+  }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: #1a1714; color: white;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    padding: 10px 20px; border-radius: 99px;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    opacity: 0; z-index: 100; white-space: nowrap;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  }
+  #toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+
+  /* Offline banner */
+  #offline-banner {
+    display: none;
+    position: fixed; top: 0; left: 0; right: 0;
+    background: #e05252; color: white;
+    text-align: center; padding: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    z-index: 99;
+  }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Offline banner -->
+<div id="offline-banner">⚠️ Tidak bisa konek ke server. Pastikan server.js sudah berjalan.</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- BG Decoration -->
+<div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+  <div class="absolute -top-40 -right-40 w-96 h-96 rounded-full opacity-40" style="background:radial-gradient(circle,#d1fae5,transparent);filter:blur(60px)"></div>
+  <div class="absolute top-1/2 -left-32 w-72 h-72 rounded-full opacity-25" style="background:radial-gradient(circle,#fef3c7,transparent);filter:blur(60px)"></div>
+  <div class="absolute bottom-0 right-1/3 w-80 h-80 rounded-full opacity-20" style="background:radial-gradient(circle,#d1fae5,transparent);filter:blur(80px)"></div>
+</div>
+
+<div class="relative z-10 max-w-2xl mx-auto px-4 py-8 md:py-12 lg:py-14">
+
+  <!-- Header -->
+  <div class="mb-8 animate-fade-in">
+    <div class="flex items-center justify-between mb-2">
+      <span class="font-mono text-xs tracking-widest uppercase" style="color:#a09a94">// tugas kuliah</span>
+      <div class="flex items-center gap-2">
+        <span id="server-status" class="w-2 h-2 rounded-full bg-gray-300" title="Status server"></span>
+        <span id="current-date" class="font-mono text-xs" style="color:#a09a94"></span>
+      </div>
+    </div>
+    <h1 class="font-extrabold leading-none tracking-tight" style="font-size:clamp(2.2rem,7vw,3.2rem);color:#1a1714">
+      Task<span style="color:#3d8b5e">Ku</span>
+    </h1>
+    <p class="mt-1 text-sm" style="color:#7a7470">Catat semua tugas, jangan sampai kelewat deadline!</p>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-3 gap-3 mb-5">
+    <div class="bg-white rounded-2xl p-4 border" style="border-color:#ede8df;box-shadow:0 1px 4px rgba(0,0,0,0.05)">
+      <div class="font-mono text-xs mb-1" style="color:#a09a94">Total</div>
+      <div id="stat-total" class="text-2xl font-bold" style="color:#1a1714">—</div>
+    </div>
+    <div class="bg-white rounded-2xl p-4 border" style="border-color:#ede8df;box-shadow:0 1px 4px rgba(0,0,0,0.05)">
+      <div class="font-mono text-xs mb-1" style="color:#3d8b5e">Selesai</div>
+      <div id="stat-done" class="text-2xl font-bold" style="color:#3d8b5e">—</div>
+    </div>
+    <div class="bg-white rounded-2xl p-4 border" style="border-color:#ede8df;box-shadow:0 1px 4px rgba(0,0,0,0.05)">
+      <div class="font-mono text-xs mb-1" style="color:#e05252">Terlambat</div>
+      <div id="stat-overdue" class="text-2xl font-bold" style="color:#e05252">—</div>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="bg-white rounded-2xl p-4 border mb-5" style="border-color:#ede8df;box-shadow:0 1px 4px rgba(0,0,0,0.05)">
+    <div class="flex justify-between mb-2">
+      <span class="font-mono text-xs" style="color:#7a7470">Progress</span>
+      <span id="progress-pct" class="font-mono text-xs font-semibold" style="color:#3d8b5e">0%</span>
+    </div>
+    <div class="h-2 rounded-full" style="background:#f0ebe0">
+      <div id="progress-fill" class="h-full rounded-full progress-fill" style="width:0%;background:linear-gradient(90deg,#3d8b5e,#4fa873)"></div>
+    </div>
+  </div>
+
+  <!-- Add Form -->
+  <div class="bg-white rounded-2xl border mb-5 overflow-hidden" style="border-color:#ede8df;box-shadow:0 1px 4px rgba(0,0,0,0.05)">
+    <div class="px-5 pt-5 pb-4">
+      <h2 class="text-sm font-semibold mb-4 flex items-center gap-2" style="color:#5c5750">
+        <span class="w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold" style="background:#e8f5ee;color:#3d8b5e">+</span>
+        Tambah Tugas Baru
+      </h2>
+      <div class="space-y-3">
+        <div>
+          <label class="font-mono text-xs block mb-1.5" style="color:#a09a94">Nama Tugas *</label>
+          <input id="input-name" type="text" placeholder="Contoh: Laporan Praktikum, UTS, Quiz..."
+            class="w-full px-4 py-3 rounded-xl border text-sm transition-all"
+            style="border-color:#e8e3da;background:#faf7f0;color:#1a1714"
+            onfocus="this.style.borderColor='#4fa873';this.style.background='white'"
+            onblur="this.style.borderColor='#e8e3da';this.style.background='#faf7f0'"
+          />
+        </div>
+        <div>
+          <label class="font-mono text-xs block mb-1.5" style="color:#a09a94">Mata Kuliah *</label>
+          <input id="input-matkul" type="text" placeholder="Contoh: Algoritma, Kalkulus, Basis Data..."
+            class="w-full px-4 py-3 rounded-xl border text-sm transition-all"
+            style="border-color:#e8e3da;background:#faf7f0;color:#1a1714"
+            onfocus="this.style.borderColor='#4fa873';this.style.background='white'"
+            onblur="this.style.borderColor='#e8e3da';this.style.background='#faf7f0'"
+          />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="font-mono text-xs block mb-1.5" style="color:#a09a94">Deadline</label>
+            <input id="input-date" type="date"
+              class="w-full px-4 py-3 rounded-xl border text-sm transition-all"
+              style="border-color:#e8e3da;background:#faf7f0;color:#1a1714;color-scheme:light"
+              onfocus="this.style.borderColor='#4fa873';this.style.background='white'"
+              onblur="this.style.borderColor='#e8e3da';this.style.background='#faf7f0'"
+            />
+          </div>
+          <div>
+            <label class="font-mono text-xs block mb-1.5" style="color:#a09a94">Prioritas</label>
+            <select id="input-priority"
+              class="w-full px-4 py-3 rounded-xl border text-sm transition-all cursor-pointer"
+              style="border-color:#e8e3da;background:#faf7f0;color:#1a1714"
+              onfocus="this.style.borderColor='#4fa873';this.style.background='white'"
+              onblur="this.style.borderColor='#e8e3da';this.style.background='#faf7f0'"
+            >
+              <option value="normal">Normal</option>
+              <option value="high">🔥 Tinggi</option>
+              <option value="low">💤 Rendah</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="px-5 pb-5">
+      <button id="btn-add" onclick="addTask()"
+        class="w-full text-white font-semibold text-sm py-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-60"
+        style="background:#3d8b5e"
+        onmouseover="this.style.background='#4fa873'"
+        onmouseout="this.style.background='#3d8b5e'"
+      >
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1v13M1 7.5h13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Tambah Tugas
+      </button>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+    <div class="flex gap-2 overflow-x-auto no-scroll pb-0.5 flex-1">
+      <button onclick="setFilter('all',this)" class="filter-btn filter-active whitespace-nowrap font-mono text-xs px-3 py-1.5 rounded-lg border transition-all" style="border-color:#3d8b5e">Semua</button>
+      <button onclick="setFilter('active',this)" class="filter-btn whitespace-nowrap font-mono text-xs px-3 py-1.5 rounded-lg border transition-all" style="border-color:#e8e3da;color:#7a7470">Aktif</button>
+      <button onclick="setFilter('done',this)" class="filter-btn whitespace-nowrap font-mono text-xs px-3 py-1.5 rounded-lg border transition-all" style="border-color:#e8e3da;color:#7a7470">Selesai</button>
+      <button onclick="setFilter('overdue',this)" class="filter-btn whitespace-nowrap font-mono text-xs px-3 py-1.5 rounded-lg border transition-all" style="border-color:#e8e3da;color:#7a7470">Terlambat</button>
+      <button onclick="setFilter('high',this)" class="filter-btn whitespace-nowrap font-mono text-xs px-3 py-1.5 rounded-lg border transition-all" style="border-color:#e8e3da;color:#7a7470">🔥 Prioritas</button>
+    </div>
+    <!-- Clear done -->
+    <button onclick="clearDone()"
+      class="whitespace-nowrap font-mono text-xs px-3 py-1.5 rounded-lg border transition-all flex-shrink-0"
+      style="border-color:#e8e3da;color:#a09a94"
+      onmouseover="this.style.borderColor='#fca5a5';this.style.color='#e05252'"
+      onmouseout="this.style.borderColor='#e8e3da';this.style.color='#a09a94'"
+    >🗑 Hapus Selesai</button>
+  </div>
+
+  <!-- Task List -->
+  <div id="task-list" class="space-y-3"></div>
+
+  <!-- Footer -->
+  <div class="mt-12 text-center font-mono text-xs" style="color:#c4bfba">
+    disimpan ke <span style="color:#3d8b5e">tasks.json</span> ✦ taskku
+  </div>
+
+</div>
+
+<script>
+// ───── API ─────────────────────────────────────────────
+const API = '/api/tasks';
+
+async function apiFetch(url, options = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ───── State ───────────────────────────────────────────
+let tasks = [];
+let currentFilter = 'all';
+let isLoading = false;
+
+// ───── Matkul Colors ───────────────────────────────────
+const matkulColorMap = {};
+const palette = [
+  { bg:'#eff6ff', text:'#3b82f6', dot:'#3b82f6' },
+  { bg:'#fef3c7', text:'#d97706', dot:'#f59e0b' },
+  { bg:'#f3e8ff', text:'#9333ea', dot:'#a855f7' },
+  { bg:'#fee2e2', text:'#e05252', dot:'#f87171' },
+  { bg:'#ccfbf1', text:'#0d9488', dot:'#14b8a6' },
+  { bg:'#ffedd5', text:'#ea580c', dot:'#f97316' },
+  { bg:'#e0e7ff', text:'#4f46e5', dot:'#6366f1' },
+  { bg:'#fce7f3', text:'#db2777', dot:'#ec4899' },
+  { bg:'#dcfce7', text:'#16a34a', dot:'#22c55e' },
+  { bg:'#fefce8', text:'#ca8a04', dot:'#eab308' },
+];
+let pIdx = 0;
+
+function getMkColor(matkul) {
+  const key = matkul.trim().toLowerCase();
+  if (!matkulColorMap[key]) { matkulColorMap[key] = palette[pIdx++ % palette.length]; }
+  return matkulColorMap[key];
+}
+
+// ───── Toast ───────────────────────────────────────────
+let toastTimer;
+function showToast(msg, isError = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = isError ? '#e05252' : '#1a1714';
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ───── Server status ───────────────────────────────────
+function setServerStatus(ok) {
+  const dot = document.getElementById('server-status');
+  dot.style.background = ok ? '#3d8b5e' : '#e05252';
+  dot.title = ok ? 'Server terhubung ✅' : 'Server tidak terhubung ❌';
+  document.getElementById('offline-banner').style.display = ok ? 'none' : 'block';
+}
+
+// ───── Load tasks from server ──────────────────────────
+async function loadTasks() {
+  try {
+    const data = await apiFetch(API);
+    tasks = data;
+    // init colors
+    tasks.forEach(t => { if (t.matkul) getMkColor(t.matkul); });
+    setServerStatus(true);
+    render();
+  } catch {
+    setServerStatus(false);
+    document.getElementById('task-list').innerHTML = `
+      <div class="bg-white rounded-2xl border py-12 text-center" style="border-color:#ede8df">
+        <div style="font-size:2.5rem" class="mb-3">🔌</div>
+        <div class="text-sm font-semibold" style="color:#7a7470">Server tidak terhubung</div>
+        <div class="font-mono text-xs mt-2 px-8" style="color:#c4bfba">
+          Jalankan: <span style="color:#3d8b5e">node server.js</span><br>lalu refresh halaman ini
+        </div>
+      </div>`;
+  }
+}
+
+// ───── Add ─────────────────────────────────────────────
+async function addTask() {
+  const name     = document.getElementById('input-name').value.trim();
+  const matkul   = document.getElementById('input-matkul').value.trim();
+  const deadline = document.getElementById('input-date').value;
+  const priority = document.getElementById('input-priority').value;
+
+  if (!name)   { shakeInput('input-name');   return; }
+  if (!matkul) { shakeInput('input-matkul'); return; }
+
+  const btn = document.getElementById('btn-add');
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Menyimpan...`;
+
+  try {
+    const task = await apiFetch(API, {
+      method: 'POST',
+      body: JSON.stringify({ name, matkul, deadline, priority }),
+    });
+    getMkColor(matkul);
+    tasks.unshift(task);
+    document.getElementById('input-name').value = '';
+    document.getElementById('input-matkul').value = '';
+    document.getElementById('input-date').value = '';
+    document.getElementById('input-priority').value = 'normal';
+    render();
+    showToast('✅ Tugas berhasil ditambahkan!');
+  } catch (e) {
+    showToast('❌ Gagal: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1v13M1 7.5h13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Tambah Tugas`;
+  }
+}
+
+// ───── Toggle Done ─────────────────────────────────────
+async function toggleDone(id) {
+  const t = tasks.find(t => t.id === id);
+  if (!t) return;
+  const newDone = !t.done;
+  // Optimistic update
+  t.done = newDone;
+  render();
+  try {
+    await apiFetch(`${API}/${id}`, { method:'PUT', body: JSON.stringify({ done: newDone }) });
+    showToast(newDone ? '✅ Tugas selesai!' : '↩️ Tandai belum selesai');
+  } catch (e) {
+    t.done = !newDone; // rollback
+    render();
+    showToast('❌ Gagal update: ' + e.message, true);
+  }
+}
+
+// ───── Delete ──────────────────────────────────────────
+async function deleteTask(id) {
+  const el = document.getElementById('task-' + id);
+  if (el) { el.classList.add('removing'); }
+
+  await new Promise(r => setTimeout(r, 210));
+
+  try {
+    await apiFetch(`${API}/${id}`, { method: 'DELETE' });
+    tasks = tasks.filter(t => t.id !== id);
+    render();
+    showToast('🗑 Tugas dihapus');
+  } catch (e) {
+    render(); // restore
+    showToast('❌ Gagal hapus: ' + e.message, true);
+  }
+}
+
+// ───── Clear Done ──────────────────────────────────────
+async function clearDone() {
+  const doneCount = tasks.filter(t => t.done).length;
+  if (!doneCount) { showToast('Tidak ada tugas selesai'); return; }
+  if (!confirm(`Hapus ${doneCount} tugas yang sudah selesai?`)) return;
+  try {
+    await apiFetch(`${API}/done`, { method: 'DELETE' });
+    tasks = tasks.filter(t => !t.done);
+    render();
+    showToast(`🗑 ${doneCount} tugas selesai dihapus`);
+  } catch (e) {
+    showToast('❌ Gagal: ' + e.message, true);
+  }
+}
+
+// ───── Filter ──────────────────────────────────────────
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('filter-active'));
+  btn.classList.add('filter-active');
+  render();
+}
+
+// ───── Render ──────────────────────────────────────────
+function daysLeft(deadline) {
+  if (!deadline) return null;
+  const diff = new Date(deadline + 'T00:00:00') - new Date(new Date().toDateString());
+  return Math.ceil(diff / 86400000);
+}
+function formatDate(d) {
+  if (!d) return '';
+  return new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { day:'numeric', month:'short', year:'numeric' });
+}
+
+function render() {
+  const total   = tasks.length;
+  const done    = tasks.filter(t => t.done).length;
+  const overdue = tasks.filter(t => !t.done && t.deadline && daysLeft(t.deadline) < 0).length;
+  const pct     = total ? Math.round(done / total * 100) : 0;
+
+  document.getElementById('stat-total').textContent  = total;
+  document.getElementById('stat-done').textContent   = done;
+  document.getElementById('stat-overdue').textContent = overdue;
+  document.getElementById('progress-pct').textContent = pct + '%';
+  document.getElementById('progress-fill').style.width = pct + '%';
+
+  const filtered = tasks.filter(t => {
+    if (currentFilter === 'active')  return !t.done;
+    if (currentFilter === 'done')    return t.done;
+    if (currentFilter === 'overdue') return !t.done && t.deadline && daysLeft(t.deadline) < 0;
+    if (currentFilter === 'high')    return t.priority === 'high' && !t.done;
+    return true;
+  });
+
+  const list = document.getElementById('task-list');
+  if (!filtered.length) {
+    list.innerHTML = `
+      <div class="bg-white rounded-2xl border py-16 text-center animate-fade-in" style="border-color:#ede8df">
+        <div style="font-size:3rem" class="mb-3">📋</div>
+        <div class="text-sm font-medium" style="color:#7a7470">Tidak ada tugas di sini</div>
+        <div class="font-mono text-xs mt-1" style="color:#c4bfba">kosong nih~</div>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(t => cardHTML(t)).join('');
+}
+
+function cardHTML(t) {
+  const dl = daysLeft(t.deadline);
+  const isOverdue = !t.done && t.deadline && dl < 0;
+  const isSoon    = !t.done && t.deadline && dl !== null && dl >= 0 && dl <= 2;
+  const mc = getMkColor(t.matkul);
+
+  let dlChip = '';
+  if (t.deadline) {
+    let chipBg = '#f5f0e8', chipColor = '#7a7470', icon = '📅', extra = '';
+    if (t.done)       { chipBg='#e8f5ee'; chipColor='#3d8b5e'; icon='✓ '; }
+    else if (isOverdue) { chipBg='#fee2e2'; chipColor='#e05252'; icon='⚠️ '; extra=` · ${Math.abs(dl)} hari lalu`; }
+    else if (dl === 0)  { chipBg='#fef3c7'; chipColor='#d97706'; icon='⏰ '; extra=' · Hari ini!'; }
+    else if (isSoon)    { chipBg='#fef3c7'; chipColor='#d97706'; icon='⏰ '; extra=` · ${dl} hari lagi`; }
+    else if (dl !== null) { extra = ` · ${dl} hari lagi`; }
+
+    dlChip = `<span class="font-mono text-xs px-2.5 py-1 rounded-lg" style="background:${chipBg};color:${chipColor}">${icon}${formatDate(t.deadline)}${extra}</span>`;
+  }
+
+  let prioChip = '';
+  if (!t.done && t.priority === 'high') prioChip = `<span class="font-mono text-xs px-2.5 py-1 rounded-lg" style="background:#fef3c7;color:#d97706">🔥 Tinggi</span>`;
+  if (!t.done && t.priority === 'low')  prioChip = `<span class="font-mono text-xs px-2.5 py-1 rounded-lg" style="background:#f5f0e8;color:#a09a94">💤 Rendah</span>`;
+
+  let borderColor = '#ede8df';
+  if (isOverdue) borderColor = '#fca5a5';
+  else if (isSoon) borderColor = '#fcd34d';
+
+  return `
+  <div id="task-${t.id}" class="animate-slide-in bg-white rounded-2xl border transition-all duration-200"
+    style="border-color:${borderColor};box-shadow:0 1px 4px rgba(0,0,0,0.05);opacity:${t.done?'0.6':'1'}">
+    <div class="p-4 sm:p-5">
+      <div class="flex items-start gap-3">
+        <div class="pt-0.5 flex-shrink-0">
+          <input type="checkbox" class="custom-check" ${t.done?'checked':''} onchange="toggleDone(${t.id})" />
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="mb-1.5">
+            <span class="mk-badge" style="background:${mc.bg};color:${mc.text}">
+              <span style="width:6px;height:6px;border-radius:50%;background:${mc.dot};flex-shrink:0;display:inline-block"></span>
+              ${esc(t.matkul)}
+            </span>
+          </div>
+          <div class="text-sm font-semibold leading-snug ${t.done?'text-done':''}" style="${t.done?'':'color:#1a1714'}">
+            ${esc(t.name)}
+          </div>
+          <div class="flex flex-wrap gap-2 mt-2">
+            ${dlChip}
+            ${prioChip}
+          </div>
+        </div>
+        <button onclick="deleteTask(${t.id})" title="Hapus"
+          class="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all"
+          style="color:#c4bfba"
+          onmouseover="this.style.color='#e05252';this.style.background='#fee2e2'"
+          onmouseout="this.style.color='#c4bfba';this.style.background='transparent'"
+        >
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+            <path d="M1.5 1.5l10 10M11.5 1.5l-10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function shakeInput(id) {
+  const el = document.getElementById(id);
+  el.style.borderColor = '#f87171';
+  el.style.background  = '#fff5f5';
+  el.style.animation   = 'shake 0.3s ease';
+  el.focus();
+  setTimeout(() => { el.style.animation=''; el.style.borderColor='#e8e3da'; el.style.background='#faf7f0'; }, 500);
+}
+
+// ───── Init ─────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('current-date').textContent = new Date().toLocaleDateString('id-ID', {
+    weekday:'short', day:'numeric', month:'short', year:'numeric'
+  });
+
+  ['input-name','input-matkul','input-date'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if (e.key === 'Enter') addTask();
+    });
+  });
+
+  loadTasks();
+
+  // Auto-refresh setiap 30 detik
+  setInterval(loadTasks, 30000);
+});
+</script>
+</body>
+</html>
