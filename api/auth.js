@@ -151,8 +151,4 @@ export default async function handler(req, res) {
   }
 
   return send(res, 404, { error: 'Endpoint tidak ditemukan' });
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 30579b5 (db diganti)
