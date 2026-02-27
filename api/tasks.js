@@ -1,72 +1,53 @@
 /**
- * /api/tasks.js — Vercel Serverless Function
- * 
- * Semua request ke /api/tasks diarahkan ke sini.
- * Data disimpan ke file tasks.json di GitHub repo kamu.
- * 
- * ENV yang dibutuhkan (set di Vercel Dashboard):
- *   GITHUB_TOKEN   → Personal Access Token (repo scope)
- *   GITHUB_OWNER   → username GitHub kamu
- *   GITHUB_REPO    → nama repo
- *   GITHUB_BRANCH  → branch (default: main)
+ * /api/tasks.js — Tasks API dengan auth middleware
+ * Setiap request harus kirim header: Authorization: Bearer <token>
  */
 
-const GITHUB_TOKEN  = process.env.GITHUB_TOKEN;
-const GITHUB_OWNER  = process.env.GITHUB_OWNER;
-const GITHUB_REPO   = process.env.GITHUB_REPO;
-const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
-const FILE_PATH     = 'tasks.json';
+const KV_URL   = process.env.KV_REST_API_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const TASKS_KEY = 'tasks';
 
-const GH_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${FILE_PATH}`;
+// ── KV helpers ────────────────────────────────────────────
 
-// ── GitHub helpers ────────────────────────────────────────
-
-async function ghGet() {
-  const res = await fetch(`${GH_API}?ref=${GITHUB_BRANCH}`, {
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github+json',
-    },
+async function kvGet(key) {
+  const res = await fetch(`${KV_URL}/get/${key}`, {
+    headers: { Authorization: `Bearer ${KV_TOKEN}` },
   });
-
-  if (res.status === 404) {
-    // File belum ada, return kosong
-    return { tasks: [], sha: null };
-  }
-  if (!res.ok) throw new Error(`GitHub GET error: ${res.status}`);
-
-  const data = await res.json();
-  const content = Buffer.from(data.content, 'base64').toString('utf8');
-  return { tasks: JSON.parse(content), sha: data.sha };
+  if (!res.ok) throw new Error(`KV GET error: ${res.status}`);
+  const { result } = await res.json();
+  if (!result) return null;
+  return typeof result === 'string' ? JSON.parse(result) : result;
 }
 
-async function ghPut(tasks, sha) {
-  const content = Buffer.from(JSON.stringify(tasks, null, 2)).toString('base64');
-  const body = {
-    message: `chore: update tasks.json [${new Date().toISOString()}]`,
-    content,
-    branch: GITHUB_BRANCH,
-    ...(sha ? { sha } : {}),
-  };
-
-  const res = await fetch(GH_API, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github+json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
+async function kvSet(key, value, exSeconds) {
+  const url = exSeconds ? `${KV_URL}/set/${key}?EX=${exSeconds}` : `${KV_URL}/set/${key}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${KV_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
   });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `GitHub PUT error: ${res.status}`);
-  }
-  return res.json();
+  if (!res.ok) throw new Error(`KV SET error: ${res.status}`);
 }
 
-// ── Body parser ───────────────────────────────────────────
+async function getTasks() {
+  const data = await kvGet(TASKS_KEY);
+  return Array.isArray(data) ? data : [];
+}
+
+async function setTasks(tasks) {
+  await kvSet(TASKS_KEY, JSON.stringify(tasks));
+}
+
+// ── Auth middleware ───────────────────────────────────────
+
+async function authenticate(req) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
+  if (!token) return false;
+  const username = await kvGet(`session:${token}`);
+  return !!username;
+}
+
+// ── Helpers ───────────────────────────────────────────────
 
 async function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -80,12 +61,10 @@ async function parseBody(req) {
   });
 }
 
-// ── CORS headers ──────────────────────────────────────────
-
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
 }
 
 function send(res, status, data) {
@@ -96,35 +75,36 @@ function send(res, status, data) {
 
 export default async function handler(req, res) {
   cors(res);
-
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  // Cek env vars
-  if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-    return send(res, 500, {
-      error: 'Environment variables belum diset. Lihat README.',
-    });
+  if (!KV_URL || !KV_TOKEN) {
+    return send(res, 500, { error: 'KV belum diset. Hubungkan Vercel KV di dashboard.' });
+  }
+
+  // Cek auth untuk semua request
+  const authed = await authenticate(req);
+  if (!authed) {
+    return send(res, 401, { error: 'Unauthorized. Silakan login terlebih dahulu.' });
   }
 
   const url = req.url.replace(/\?.*$/, '');
 
   try {
-    // ── GET /api/tasks ───────────────────────────────────
+    // ── GET /api/tasks ────────────────────────────────────
     if (req.method === 'GET' && url === '/api/tasks') {
-      const { tasks } = await ghGet();
+      const tasks = await getTasks();
       return send(res, 200, tasks);
     }
 
-    // ── POST /api/tasks ──────────────────────────────────
+    // ── POST /api/tasks ───────────────────────────────────
     if (req.method === 'POST' && url === '/api/tasks') {
       const body = await parseBody(req);
       if (!body.name || !body.matkul) {
         return send(res, 400, { error: 'name dan matkul wajib diisi' });
       }
-
-      const { tasks, sha } = await ghGet();
+      const tasks = await getTasks();
       const task = {
-        id:        Date.now(),
+        id:        `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         name:      String(body.name).trim(),
         matkul:    String(body.matkul).trim(),
         deadline:  body.deadline || null,
@@ -133,51 +113,50 @@ export default async function handler(req, res) {
         createdAt: new Date().toISOString(),
       };
       tasks.unshift(task);
-      await ghPut(tasks, sha);
+      await setTasks(tasks);
       return send(res, 201, task);
     }
 
-    // ── PUT /api/tasks/:id ───────────────────────────────
-    const putMatch = url.match(/^\/api\/tasks\/(\d+)$/);
+    // ── PUT /api/tasks/:id ────────────────────────────────
+    const putMatch = url.match(/^\/api\/tasks\/([^/]+)$/);
     if (req.method === 'PUT' && putMatch) {
-      const id   = Number(putMatch[1]);
-      const body = await parseBody(req);
-      const { tasks, sha } = await ghGet();
-      const idx  = tasks.findIndex(t => t.id === id);
+      const id    = putMatch[1];
+      const body  = await parseBody(req);
+      const tasks = await getTasks();
+      const idx   = tasks.findIndex(t => String(t.id) === id);
       if (idx === -1) return send(res, 404, { error: 'Task tidak ditemukan' });
-
       const allowed = ['name', 'matkul', 'deadline', 'priority', 'done'];
       allowed.forEach(k => { if (k in body) tasks[idx][k] = body[k]; });
       tasks[idx].updatedAt = new Date().toISOString();
-      await ghPut(tasks, sha);
+      await setTasks(tasks);
       return send(res, 200, tasks[idx]);
     }
 
-    // ── DELETE /api/tasks/done ───────────────────────────
+    // ── DELETE /api/tasks/done ────────────────────────────
     if (req.method === 'DELETE' && url === '/api/tasks/done') {
-      const { tasks, sha } = await ghGet();
+      const tasks    = await getTasks();
       const filtered = tasks.filter(t => !t.done);
-      await ghPut(filtered, sha);
+      await setTasks(filtered);
       return send(res, 200, { ok: true, deleted: tasks.length - filtered.length });
     }
 
-    // ── DELETE /api/tasks/:id ────────────────────────────
-    const delMatch = url.match(/^\/api\/tasks\/(\d+)$/);
+    // ── DELETE /api/tasks/:id ─────────────────────────────
+    const delMatch = url.match(/^\/api\/tasks\/([^/]+)$/);
     if (req.method === 'DELETE' && delMatch) {
-      const id = Number(delMatch[1]);
-      const { tasks, sha } = await ghGet();
-      const filtered = tasks.filter(t => t.id !== id);
+      const id       = delMatch[1];
+      const tasks    = await getTasks();
+      const filtered = tasks.filter(t => String(t.id) !== id);
       if (filtered.length === tasks.length) {
         return send(res, 404, { error: 'Task tidak ditemukan' });
       }
-      await ghPut(filtered, sha);
+      await setTasks(filtered);
       return send(res, 200, { ok: true });
     }
 
     return send(res, 404, { error: 'Endpoint tidak ditemukan' });
 
   } catch (e) {
-    console.error('[TaskKu API Error]', e.message);
+    console.error('[TaskKu Tasks Error]', e.message);
     return send(res, 500, { error: e.message });
   }
 }
