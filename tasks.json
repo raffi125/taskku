@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "id": 1772197664048,
+    "name": "Tugas 2 Stuktur Data",
+    "matkul": "Stuktur Data",
+    "deadline": "2026-03-05",
+    "priority": "high",
+    "done": false,
+    "createdAt": "2026-02-27T13:07:44.048Z"
+  }
+]
