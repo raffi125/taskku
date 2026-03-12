@@ -1,14 +1,13 @@
 /**
  * POST /api/auth/login
+ *
+ * Menerima { username, passwordHash } — password sudah di-hash SHA-256 di browser.
+ * Server tinggal bandingkan hash dengan APP_PASSWORD_HASH di env.
+ * Password asli tidak pernah sampai ke server.
  */
 
 const KV_URL   = process.env.KV_REST_API_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN;
-
-function sha256(text) {
-  const crypto = require('crypto');
-  return crypto.createHash('sha256').update(text).digest('hex');
-}
 
 function generateToken() {
   const crypto = require('crypto');
@@ -54,7 +53,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { username, password } = await parseBody(req);
+    const { username, passwordHash } = await parseBody(req);
 
     const expectedUser = process.env.APP_USERNAME;
     const expectedHash = process.env.APP_PASSWORD_HASH;
@@ -63,20 +62,25 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'APP_USERNAME / APP_PASSWORD_HASH belum diset di env variables' });
     }
 
-    const passwordHash = sha256(String(password || ''));
-    const usernameOk   = String(username || '').trim() === expectedUser;
-    const passwordOk   = passwordHash === expectedHash;
+    if (!username || !passwordHash) {
+      return res.status(400).json({ error: 'Username dan password wajib diisi' });
+    }
+
+    // Bandingkan langsung — hash sudah dilakukan di browser
+    const usernameOk = String(username).trim() === expectedUser;
+    const passwordOk = String(passwordHash).toLowerCase() === expectedHash.toLowerCase();
 
     if (!usernameOk || !passwordOk) {
       await new Promise(r => setTimeout(r, 1000)); // anti brute force
       return res.status(401).json({ error: 'Username atau password salah' });
     }
 
+    // Buat session token, simpan di KV, expire 7 hari
     const token = generateToken();
-    const SESSION_EXPIRE = 60 * 60 * 24 * 7; // 7 hari
-    await kvSet(`session:${token}`, username, SESSION_EXPIRE);
+    const SESSION_EXPIRE = 60 * 60 * 24 * 7;
+    await kvSet(`session:${token}`, username.trim(), SESSION_EXPIRE);
 
-    return res.status(200).json({ ok: true, token, username, expiresIn: SESSION_EXPIRE });
+    return res.status(200).json({ ok: true, token, username: username.trim(), expiresIn: SESSION_EXPIRE });
 
   } catch (e) {
     console.error('[Login Error]', e.message);
