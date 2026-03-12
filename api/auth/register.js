@@ -1,9 +1,5 @@
 import { get, set } from '../_redis.js';
 
-function generateToken() {
-  return require('crypto').randomBytes(32).toString('hex');
-}
-
 async function parseBody(req) {
   return new Promise((resolve, reject) => {
     let raw = '';
@@ -27,23 +23,21 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Username dan password wajib diisi' });
 
     const clean = String(username).trim().toLowerCase();
-    const user  = await get(`user:${clean}`);
 
-    if (!user) {
-      await new Promise(r => setTimeout(r, 1000));
-      return res.status(401).json({ error: 'Username atau password salah' });
-    }
+    if (!/^[a-z0-9_]{3,20}$/.test(clean))
+      return res.status(400).json({ error: 'Username hanya boleh huruf kecil, angka, underscore (3-20 karakter)' });
 
-    const passwordOk = String(passwordHash).toLowerCase() === user.passwordHash;
-    if (!passwordOk) {
-      await new Promise(r => setTimeout(r, 1000));
-      return res.status(401).json({ error: 'Username atau password salah' });
-    }
+    const existing = await get(`user:${clean}`);
+    if (existing)
+      return res.status(409).json({ error: 'Username sudah dipakai, coba yang lain' });
 
-    const token = generateToken();
-    await set(`session:${token}`, clean, 60 * 60 * 24 * 7);
+    await set(`user:${clean}`, {
+      username: clean,
+      passwordHash: String(passwordHash).toLowerCase(),
+      createdAt: new Date().toISOString(),
+    });
 
-    return res.status(200).json({ ok: true, token, username: clean });
+    return res.status(201).json({ ok: true, username: clean });
 
   } catch (e) {
     return res.status(500).json({ error: e.message });
