@@ -1,4 +1,4 @@
-import { get, set } from '../_redis.js';
+import { get, set } from '../_api.js';
 
 function generateToken() {
   return require('crypto').randomBytes(32).toString('hex');

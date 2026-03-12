@@ -1,4 +1,4 @@
-import { get } from '../_redis.js';
+import { get } from '../_api.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
