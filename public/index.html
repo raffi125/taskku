@@ -166,7 +166,7 @@ tailwind.config = {
       <h1 class="text-4xl font-extrabold tracking-tight" style="color:#1a1714">
         Task<span style="color:#3d8b5e">Ku</span>
       </h1>
-      <p class="text-sm mt-1" style="color:#7a7470">Masuk untuk melihat tugasmu</p>
+      <p class="text-sm mt-1" style="color:#7a7470" id="auth-subtitle">Masuk untuk melihat tugasmu</p>
     </div>
 
     <!-- Form -->
@@ -205,11 +205,23 @@ tailwind.config = {
         </div>
       </div>
 
-      <!-- Error msg -->
+      <!-- Konfirmasi password (hanya register) -->
+      <div id="register-confirm-wrap" class="hidden">
+        <label class="font-mono text-xs block mb-1.5" style="color:#a09a94">Konfirmasi Password</label>
+        <input id="register-confirm" type="password" placeholder="Ulangi password..."
+          autocomplete="new-password"
+          class="w-full px-4 py-3 rounded-xl border text-sm transition-all"
+          style="border-color:#e8e3da;background:#faf7f0;color:#1a1714"
+          onfocus="this.style.borderColor='#4fa873';this.style.background='white'"
+          onblur="this.style.borderColor='#e8e3da';this.style.background='#faf7f0'"
+        />
+      </div>
+
+      <!-- Error / success msg -->
       <div id="login-error" class="hidden text-sm text-center py-2 px-4 rounded-xl font-medium" style="background:#fee2e2;color:#e05252"></div>
 
       <!-- Submit -->
-      <button id="btn-login" onclick="doLogin()"
+      <button id="btn-login" onclick="doSubmitAuth()"
         class="w-full text-white font-semibold text-sm py-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 mt-2"
         style="background:#3d8b5e"
         onmouseover="this.style.background='#4fa873'"
@@ -217,6 +229,16 @@ tailwind.config = {
       >
         Masuk
       </button>
+
+      <!-- Toggle login/register -->
+      <div class="text-center pt-1">
+        <span class="text-sm" style="color:#a09a94" id="auth-toggle-text">Belum punya akun?</span>
+        <button onclick="toggleAuthMode()" class="text-sm font-semibold ml-1 transition-all"
+          style="color:#3d8b5e" id="auth-toggle-btn"
+          onmouseover="this.style.color='#4fa873'"
+          onmouseout="this.style.color='#3d8b5e'"
+        >Daftar sekarang</button>
+      </div>
     </div>
   </div>
 </div>
@@ -417,7 +439,7 @@ async function apiFetch(url, options = {}) {
   });
 
   // Session expired
-  if (res.status === 401 && url !== '/api/auth/login') {
+  if (res.status === 401 && !url.startsWith('/api/auth/')) {
     clearSession();
     showLogin();
     showToast('⏱ Sesi kamu sudah berakhir, silakan login ulang', true);
@@ -432,22 +454,44 @@ async function apiFetch(url, options = {}) {
 }
 
 // ═══════════════════════════════════════════
-//  LOGIN / LOGOUT
+//  LOGIN / REGISTER / LOGOUT
 // ═══════════════════════════════════════════
 
+let authMode = 'login'; // 'login' | 'register'
+
+function toggleAuthMode() {
+  authMode = authMode === 'login' ? 'register' : 'login';
+  const isRegister = authMode === 'register';
+
+  document.getElementById('auth-subtitle').textContent     = isRegister ? 'Buat akun baru' : 'Masuk untuk melihat tugasmu';
+  document.getElementById('btn-login').textContent         = isRegister ? 'Daftar' : 'Masuk';
+  document.getElementById('auth-toggle-text').textContent  = isRegister ? 'Sudah punya akun?' : 'Belum punya akun?';
+  document.getElementById('auth-toggle-btn').textContent   = isRegister ? 'Masuk di sini' : 'Daftar sekarang';
+  document.getElementById('register-confirm-wrap').classList.toggle('hidden', !isRegister);
+  document.getElementById('login-error').classList.add('hidden');
+  document.getElementById('login-username').value = '';
+  document.getElementById('login-password').value = '';
+  document.getElementById('register-confirm').value = '';
+}
+
 function showLogin() {
+  authMode = 'login';
   document.getElementById('login-page').classList.remove('hidden');
   document.getElementById('app-page').classList.add('hidden');
   document.getElementById('login-username').value = '';
   document.getElementById('login-password').value = '';
+  document.getElementById('register-confirm').value = '';
   document.getElementById('login-error').classList.add('hidden');
+  document.getElementById('register-confirm-wrap').classList.add('hidden');
+  document.getElementById('btn-login').textContent = 'Masuk';
+  document.getElementById('auth-subtitle').textContent = 'Masuk untuk melihat tugasmu';
+  document.getElementById('auth-toggle-text').textContent = 'Belum punya akun?';
+  document.getElementById('auth-toggle-btn').textContent = 'Daftar sekarang';
 }
 
 function showApp(username) {
   document.getElementById('login-page').classList.add('hidden');
   document.getElementById('app-page').classList.remove('hidden');
-
-  // Set user info
   const initial = username.charAt(0).toUpperCase();
   document.getElementById('user-avatar').textContent = initial;
   document.getElementById('user-name').textContent = username;
@@ -457,6 +501,12 @@ function showApp(username) {
 async function sha256(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Dipanggil tombol submit — otomatis pilih login atau register
+function doSubmitAuth() {
+  if (authMode === 'register') doRegister();
+  else doLogin();
 }
 
 async function doLogin() {
@@ -476,9 +526,7 @@ async function doLogin() {
   errEl.classList.add('hidden');
 
   try {
-    // Hash password di browser sebelum dikirim — password asli tidak pernah keluar
     const passwordHash = await sha256(password);
-
     const data = await apiFetch('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, passwordHash }),
@@ -487,11 +535,10 @@ async function doLogin() {
     showApp(data.username);
     loadTasks();
   } catch (e) {
-    errEl.textContent = e.message === 'HTTP 401'
+    errEl.textContent = e.message.includes('401') || e.message.includes('salah')
       ? 'Username atau password salah'
       : 'Gagal login: ' + e.message;
     errEl.classList.remove('hidden');
-    // Shake password field
     const pwEl = document.getElementById('login-password');
     pwEl.style.animation = 'shake 0.3s ease';
     pwEl.style.borderColor = '#f87171';
@@ -502,10 +549,66 @@ async function doLogin() {
   }
 }
 
-async function doLogout() {
+async function doRegister() {
+  const username = document.getElementById('login-username').value.trim().toLowerCase();
+  const password = document.getElementById('login-password').value;
+  const confirm  = document.getElementById('register-confirm').value;
+  const errEl    = document.getElementById('login-error');
+  const btn      = document.getElementById('btn-login');
+
+  errEl.classList.add('hidden');
+
+  if (!username || !password || !confirm) {
+    errEl.textContent = 'Semua field wajib diisi';
+    errEl.classList.remove('hidden'); return;
+  }
+  if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+    errEl.textContent = 'Username: huruf kecil, angka, underscore (3-20 karakter)';
+    errEl.classList.remove('hidden'); return;
+  }
+  if (password.length < 6) {
+    errEl.textContent = 'Password minimal 6 karakter';
+    errEl.classList.remove('hidden'); return;
+  }
+  if (password !== confirm) {
+    errEl.textContent = 'Password dan konfirmasi tidak sama';
+    errEl.classList.remove('hidden');
+    document.getElementById('register-confirm').style.borderColor = '#f87171';
+    setTimeout(() => document.getElementById('register-confirm').style.borderColor = '#e8e3da', 1500);
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="white" stroke-width="3" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Mendaftar...`;
+
   try {
-    await apiFetch('/api/auth/logout', { method: 'POST' });
-  } catch {}
+    const passwordHash = await sha256(password);
+    await apiFetch('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, passwordHash }),
+    });
+    // Auto login setelah register berhasil
+    const data = await apiFetch('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, passwordHash }),
+    });
+    saveSession(data.token, data.username);
+    showApp(data.username);
+    loadTasks();
+    showToast('🎉 Akun berhasil dibuat, selamat datang!');
+  } catch (e) {
+    errEl.textContent = e.message.includes('sudah dipakai')
+      ? 'Username sudah dipakai, coba yang lain'
+      : 'Gagal daftar: ' + e.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Daftar';
+  }
+}
+
+async function doLogout() {
+  try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch {}
   clearSession();
   tasks = [];
   showLogin();
@@ -837,7 +940,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'Enter') document.getElementById('login-password').focus();
   });
   document.getElementById('login-password').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doLogin();
+    if (e.key === 'Enter') doSubmitAuth();
+  });
+  document.getElementById('register-confirm').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSubmitAuth();
   });
 
   // Event delegation untuk task list
