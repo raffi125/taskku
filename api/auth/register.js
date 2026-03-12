@@ -1,4 +1,4 @@
-import { get, set } from '../_redis.js';
+import { get, set } from '../_api.js';
 
 async function parseBody(req) {
   return new Promise((resolve, reject) => {
