@@ -13,18 +13,24 @@ async function redis(command, ...args) {
   return result;
 }
 
-export async function get(key) {
+ async function get(key) {
   const result = await redis('get', key);
   if (!result) return null;
   try { return JSON.parse(result); } catch { return result; }
 }
 
-export async function set(key, value, exSeconds) {
+ async function set(key, value, exSeconds) {
   const val = typeof value === 'string' ? value : JSON.stringify(value);
   if (exSeconds) return redis('set', key, val, 'EX', String(exSeconds));
   return redis('set', key, val);
 }
 
-export async function del(key) {
+ async function del(key) {
   return redis('del', key);
 }
+
+module.exports = {
+  get,
+  set,
+  del
+};
