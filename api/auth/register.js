@@ -1,4 +1,4 @@
-const bcrypt = reuire("bcryptjs");
+const bcrypt = require("bcryptjs");
 const { get, set } = require("../_api.js");
 
 async function parseBody(req) {
