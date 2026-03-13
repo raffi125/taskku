@@ -509,46 +509,6 @@ function doSubmitAuth() {
   else doLogin();
 }
 
-async function doLogin() {
-  const username = document.getElementById('login-username').value.trim();
-  const password = document.getElementById('login-password').value;
-  const errEl    = document.getElementById('login-error');
-  const btn      = document.getElementById('btn-login');
-
-  if (!username || !password) {
-    errEl.textContent = 'Username dan password wajib diisi';
-    errEl.classList.remove('hidden');
-    return;
-  }
-
-  btn.disabled = true;
-  btn.innerHTML = `<svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="white" stroke-width="3" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Masuk...`;
-  errEl.classList.add('hidden');
-
-  try {
-    const passwordHash = await sha256(password);
-    const data = await apiFetch('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, passwordHash }),
-    });
-    saveSession(data.token, data.username);
-    showApp(data.username);
-    loadTasks();
-  } catch (e) {
-    errEl.textContent = e.message.includes('401') || e.message.includes('salah')
-      ? 'Username atau password salah'
-      : 'Gagal login: ' + e.message;
-    errEl.classList.remove('hidden');
-    const pwEl = document.getElementById('login-password');
-    pwEl.style.animation = 'shake 0.3s ease';
-    pwEl.style.borderColor = '#f87171';
-    setTimeout(() => { pwEl.style.animation = ''; pwEl.style.borderColor = '#e8e3da'; }, 400);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Masuk';
-  }
-}
-
 async function doRegister() {
   const username = document.getElementById('login-username').value.trim().toLowerCase();
   const password = document.getElementById('login-password').value;
@@ -560,47 +520,71 @@ async function doRegister() {
 
   if (!username || !password || !confirm) {
     errEl.textContent = 'Semua field wajib diisi';
-    errEl.classList.remove('hidden'); return;
+    errEl.classList.remove('hidden');
+    return;
   }
+
   if (!/^[a-z0-9_]{3,20}$/.test(username)) {
     errEl.textContent = 'Username: huruf kecil, angka, underscore (3-20 karakter)';
-    errEl.classList.remove('hidden'); return;
+    errEl.classList.remove('hidden');
+    return;
   }
+
   if (password.length < 6) {
     errEl.textContent = 'Password minimal 6 karakter';
-    errEl.classList.remove('hidden'); return;
+    errEl.classList.remove('hidden');
+    return;
   }
+
   if (password !== confirm) {
     errEl.textContent = 'Password dan konfirmasi tidak sama';
     errEl.classList.remove('hidden');
-    document.getElementById('register-confirm').style.borderColor = '#f87171';
-    setTimeout(() => document.getElementById('register-confirm').style.borderColor = '#e8e3da', 1500);
     return;
   }
 
   btn.disabled = true;
-  btn.innerHTML = `<svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="white" stroke-width="3" stroke-dasharray="40" stroke-dashoffset="10"/></svg> Mendaftar...`;
+  btn.innerHTML = `<svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="12" r="10" stroke="white" stroke-width="3" stroke-dasharray="40" stroke-dashoffset="10"/>
+  </svg> Mendaftar...`;
 
   try {
+
     const passwordHash = await sha256(password);
+
+    // REGISTER
     await apiFetch('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, passwordHash }),
     });
-    // Auto login setelah register berhasil
-    const data = await apiFetch('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, passwordHash }),
-    });
-    saveSession(data.token, data.username);
-    showApp(data.username);
-    loadTasks();
-    showToast('🎉 Akun berhasil dibuat, selamat datang!');
+
+    showToast('🎉 Akun berhasil dibuat!');
+
+    // AUTO LOGIN
+    try {
+      const data = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, passwordHash }),
+      });
+
+      saveSession(data.token, data.username);
+      showApp(data.username);
+      loadTasks();
+
+    } catch {
+      // kalau login gagal, tetap sukses register
+      showLogin();
+      errEl.textContent = 'Akun berhasil dibuat. Silakan login.';
+      errEl.classList.remove('hidden');
+    }
+
   } catch (e) {
-    errEl.textContent = e.message.includes('sudah dipakai')
-      ? 'Username sudah dipakai, coba yang lain'
-      : 'Gagal daftar: ' + e.message;
+
+    errEl.textContent = e.message.includes('sudah')
+      ? 'Username sudah dipakai'
+      : 'Gagal daftar';
+
     errEl.classList.remove('hidden');
+
   } finally {
     btn.disabled = false;
     btn.textContent = 'Daftar';
